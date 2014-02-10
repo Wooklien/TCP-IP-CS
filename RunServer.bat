@@ -1,1 +1,1 @@
-java -jar Server.jar 900
+java -jar Server.jar
