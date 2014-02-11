@@ -1,4 +1,3 @@
-Assignment 1
 Quoc Lien
 02.10.14
 
