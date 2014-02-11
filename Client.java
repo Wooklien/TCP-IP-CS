@@ -26,8 +26,10 @@ public class Client {
 			System.out.print("Port: ");
 			port = Integer.parseInt(console.readLine());	
 		}
-		else {
+		else if(args.length == 2) {
 			System.out.println("===================================================================");
+			server = args[0];
+			port = Integer.parseInt(args[1]);
 		}
 		
 		//Byte Array with 100kb buffer.
