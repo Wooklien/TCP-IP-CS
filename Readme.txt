@@ -1,6 +1,5 @@
 Assignment 1
 Quoc Lien
-816097211
 02.10.14
 
 ##### Running through Jar Files #####
