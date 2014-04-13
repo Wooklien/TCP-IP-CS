@@ -1,88 +1,183 @@
-import java.net.*;
-import java.nio.file.Files;
 import java.io.*;
-import java.util.Date;
+import java.net.*;
+import java.util.*;
 
 public class Server {
+    public static final int PORT = 1234;
+    public static final int PACKETSIZE = 100;
 
-	public static final int BUFFER = 1;
-	
-	public static void main(String[] args) throws IOException {
-		BufferedReader console = new BufferedReader(new InputStreamReader(System.in));
-		Date date = new Date();
-		
-		//Sever Port String - Must Parse to Int before use. 
-		int serverPort = 0;
-		
-		/*
-		 * Server setup using either Command line argument
-		 * or user input.
-		 */
-		if(args.length != 1){
-			System.out.println("No Arguments passed: <PORT>");
-			
-			System.out.print("<PORT>: ");
-			serverPort = Integer.parseInt(console.readLine());
-		}
-		else if(args.length == 1) {
-			serverPort = Integer.parseInt(args[0]);
-		}
-		else {
-			System.out.print("INCORRECT NUMBER OF PARAMETERS! Argument <PORT>: ");
-			serverPort = Integer.parseInt(console.readLine());
-		}
-		
-		System.out.println("===================================================================");
-		System.out.println(":: Server Started :: Listening to Port " + serverPort + " ::");
-		System.out.println("===================================================================");
-		
-		//Create a server socket to accept client connection requests
-		ServerSocket serverSocket = new ServerSocket(serverPort);
-		
-		int size; //Size of the file.
-		byte[] buffer = new byte[BUFFER]; //Byte array of buffer size.
-		
-		while(true) {
-			//Accepting client socket request. 
-			Socket clientSocket = serverSocket.accept();
-			date.getTime();
-			
-			SocketAddress clientAddress = clientSocket.getRemoteSocketAddress();
-			System.out.println("Time: " +  new Date().toString() + " | Client at " + clientAddress + " has Connected.");
-			
-			//Getting file name input from client.
-			InputStream inFile = clientSocket.getInputStream();
-			
-			//Setting up a 32 byte array for file name.
-			byte[] data = new byte[32];
-			inFile.read(data);
-			
-			//Creating file object with file name.
-			String fileName = new String(data);
-			File file = new File(fileName);
-			
-			System.out.println("Client Requesting File " + file);
-			
-			/*
-			 * Creating a Buffered File Stream to send through socket.  
-			 * Error with setting up a client requested file. (Pathing Error)
-			 */
-			InputStream in = new BufferedInputStream(new FileInputStream("TEST.txt"));
-			OutputStream out = clientSocket.getOutputStream();
-			
-			//Sending File to socket, a Byte at a time.
-			System.out.println("Sending File Request to Client.");
-			while((size = in.read(buffer)) != -1){
-				out.write(buffer);
-			}
-			
-			//Closing connection.
-			System.out.println("Client has received its request.");
-			System.out.println("Time: " +  new Date().toString() + " | Client at " + clientAddress + " has closed its connection.");
-			System.out.println("===================================================================");
-			in.close();
-			out.close();
-			clientSocket.close();
-		}
-	}
+    public static int connection = 0;
+
+    public static void main(String args[]) throws IOException {
+        // Connection Parameters
+        DatagramSocket serverSocket = null;
+        int maxConnection = 3;             // Max threads at any time
+
+        byte[] receiveData = new byte[PACKETSIZE];
+
+        // Create a place for the client to send data too.
+        System.out.println("Waiting for client requests...");
+        
+
+        try {
+            // Setup socket
+            serverSocket = new DatagramSocket(PORT);
+            DatagramSocket clientSocket = null;
+
+            while(true) {
+                byte[] name = new byte[PACKETSIZE];
+                DatagramPacket packet = new DatagramPacket(name, name.length);
+                if(connection < maxConnection) {
+                    serverSocket.receive(packet); 
+
+                    String request = new String(packet.getData()).trim();
+
+                    String[] requestTok = request.split("@");
+
+                    if(requestTok[0].equals("1")) {
+                        connection++;
+                        String client = requestTok[1];
+                        System.out.println("Connected to " + client + "...");
+
+                        InetAddress clientAddress = packet.getAddress();
+                        int port = packet.getPort();
+                        clientSocket = serverSocket;
+
+                        ServerThread server = new ServerThread(clientSocket, client, port);
+                        new Thread(server).start();
+                    }
+                }            
+            }
+        }
+        catch (Exception e) {
+            System.out.println("Connection Error: " + e.getMessage());
+        }
+        finally {
+            if(serverSocket != null) 
+                serverSocket.close();
+        }
+    }
 }
+
+class ServerThread implements Runnable {
+    public static final int PACKETSIZE = 100;
+    public static final String ETX = "End_of_Communication";
+
+    public static Map<String, Integer> clients = new HashMap<String, Integer>();
+
+    private DatagramSocket serverSocket = null;
+    private String clientName;
+
+    // Constructor
+    public ServerThread(DatagramSocket socket, String clientName, int port) {
+        serverSocket = socket;
+        this.clientName = clientName;
+        addClient(clientName, port);
+        printClients();
+    }
+
+    @Override
+    public void run() {
+        try {
+            Thread.sleep(10000);
+
+            while(true) {
+
+                if(clients.size() < 1) {
+                    break;
+                }
+
+                byte[] rData = new byte[PACKETSIZE];
+                byte[] sData = new byte[PACKETSIZE];
+                DatagramPacket receivePacket = new DatagramPacket(rData, rData.length);
+                serverSocket.receive(receivePacket);
+                String message = new String(receivePacket.getData()).trim();
+
+                String[] tokens = message.split("æ");
+
+                InetAddress IPAddress = InetAddress.getByName(tokens[1]);
+
+                DatagramPacket sendPacket = null;
+                String client = getClient(receivePacket, clients);
+                int port = 0;
+
+                if(tokens[2].equals("ALL")) {
+                    for (Map.Entry<String, Integer> entry : clients.entrySet()) {
+                        if(!client.equals(entry.getKey())) {
+                            port = entry.getValue();
+                            String newMessage = "<" + client + ">: " + tokens[0];
+                            sData = newMessage.getBytes();
+                            sendPacket = new DatagramPacket(sData, sData.length, IPAddress, port);
+                            serverSocket.send(sendPacket);
+                        }
+                    }
+                }
+                else {
+                    port = clients.get(tokens[2]);
+
+                    if(tokens[0].equals(ETX)) {
+                        System.out.println("Closed for " + client + "...");
+                        sData = tokens[0].getBytes();
+                        sendPacket = new DatagramPacket(sData, sData.length, IPAddress, port);
+                        serverSocket.send(sendPacket);
+                        clients.remove(client);
+                        Server.connection--;
+                    }
+                    else if(tokens[0].equals("WhoIsOnline")) {
+                        whoIsOnline(serverSocket, receivePacket, clients, IPAddress);
+                    }
+                    else {
+                        String newMessage = "<" + client + ">: " + tokens[0];
+                        sData = newMessage.getBytes();
+                        sendPacket = new DatagramPacket(sData, sData.length, IPAddress, port);
+                        serverSocket.send(sendPacket);
+                    }    
+                }          
+            }
+            serverSocket.disconnect();
+            serverSocket.close();
+            System.exit(0);
+        }
+        catch (Exception e) {
+            System.out.println("Server Error: " + e.getMessage());
+        }
+    }
+
+    private static void addClient(String id, int port) {
+        clients.put(id,port);
+    }
+
+    private static void printClients() {
+        for (Map.Entry<String, Integer> entry : clients.entrySet()) {
+            System.out.println(entry.getKey() + "/" + entry.getValue());
+        }
+    }
+
+    private static void whoIsOnline(DatagramSocket server, DatagramPacket receivePacket, Map<String, Integer> clients, InetAddress IPAddress) {
+        byte[] sData = new byte[PACKETSIZE];
+        for (Map.Entry<String, Integer> entry : clients.entrySet()) {
+            try {
+                int port = receivePacket.getPort();
+                String client = entry.getKey() + " is Online.";
+
+                sData = client.getBytes();
+                DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, IPAddress, port);
+                server.send(sendPacket);               
+            }
+            catch (Exception e) {
+                System.err.println("System: " + e.getMessage());
+            }
+        }
+    }
+
+    private static String getClient(DatagramPacket packet, Map<String, Integer> clients) {
+        String client = null;
+        for (Map.Entry<String, Integer> entry : clients.entrySet()) {
+            if(entry.getValue().equals(packet.getPort())) {
+                client = entry.getKey();
+            }
+        }
+        return client;
+    }
+}
+
